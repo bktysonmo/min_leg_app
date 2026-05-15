@@ -336,36 +336,65 @@ div[data-testid="stMetricValue"] { font-family: 'Roboto Mono', monospace !import
 DB_URL = "https://github.com/bktysonmo/min_leg_app/releases/download/db/mo_votes.db"
 
 def _resolve_db():
-    db_path = Path("/tmp/mo_votes.db")
-
-    # Reuse existing downloaded DB
-    if db_path.exists():
-        return str(db_path)
+    # Check environment variable first
+    env_db = os.environ.get("MO_VOTES_DB")
+    if env_db and Path(env_db).exists():
+        return env_db
+    
+    # Check current directory
+    local_db = Path("mo_votes.db")
+    if local_db.exists():
+        return str(local_db)
+    
+    # Check /tmp directory (previously downloaded)
+    tmp_db = Path("/tmp/mo_votes.db")
+    if tmp_db.exists():
+        return str(tmp_db)
 
     # Download DB from GitHub Releases
     try:
-        print("Downloading database...")
-        urllib.request.urlretrieve(DB_URL, db_path)
+        print("Downloading database from GitHub...")
+        urllib.request.urlretrieve(DB_URL, tmp_db)
+        print(f"Database downloaded to {tmp_db}")
+        return str(tmp_db)
     except Exception as e:
-        st.error(f"Failed to download database: {e}")
+        st.error(f"Failed to download database: {e}\n\nTroubleshooting:\n"
+                 f"1. Check your internet connection\n"
+                 f"2. Verify the GitHub URL is accessible\n"
+                 f"3. Set MO_VOTES_DB env var to point to a local database file\n"
+                 f"4. Place mo_votes.db in the same directory as this script")
         st.stop()
-
-    return str(db_path)
 
 DB_PATH = _resolve_db()
 
 @st.cache_resource
 def _conn():
-    if not Path(DB_PATH).exists():
-        st.error(f"Database not found: {DB_PATH}")
+    db_file = Path(DB_PATH)
+    if not db_file.exists():
+        st.error(
+            f"❌ **Database file not found**\n\n"
+            f"Expected location: `{DB_PATH}`\n\n"
+            f"**Solutions:**\n"
+            f"1. **Set environment variable:** `export MO_VOTES_DB=/path/to/mo_votes.db`\n"
+            f"2. **Place in current directory:** Copy `mo_votes.db` to the app directory\n"
+            f"3. **Restart the app:** The app will attempt to download from GitHub\n"
+            f"4. **Manual download:** Download from "
+            f"https://github.com/bktysonmo/min_leg_app/releases/download/db/mo_votes.db"
+        )
         st.stop()
 
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-
-    return conn
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+    except sqlite3.DatabaseError as e:
+        st.error(f"❌ **Database error:** {e}\n\nThe file may be corrupted. Try re-downloading.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ **Connection error:** {e}")
+        st.stop()
 
 def dbq(sql, params=()):
     try:
