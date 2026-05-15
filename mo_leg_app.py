@@ -30,6 +30,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+import urllib.request
+
 # ═══════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════════════
@@ -331,24 +333,38 @@ div[data-testid="stMetricValue"] { font-family: 'Roboto Mono', monospace !import
 # DATABASE
 # ═══════════════════════════════════════════════════════════════════════════
 
+DB_URL = "https://github.com/bktysonmo/min_leg_app/releases/download/db/mo_votes.db"
+
 def _resolve_db():
-    env = os.getenv("MO_VOTES_DB")
-    if env and Path(env).exists(): return env
-    for c in [Path(__file__).parent / "mo_votes.db", Path.cwd() / "mo_votes.db"]:
-        if c.exists(): return str(c)
-    return str(Path.cwd() / "mo_votes.db")
+    db_path = Path("/tmp/mo_votes.db")
+
+    # Reuse existing downloaded DB
+    if db_path.exists():
+        return str(db_path)
+
+    # Download DB from GitHub Releases
+    try:
+        print("Downloading database...")
+        urllib.request.urlretrieve(DB_URL, db_path)
+    except Exception as e:
+        st.error(f"Failed to download database: {e}")
+        st.stop()
+
+    return str(db_path)
 
 DB_PATH = _resolve_db()
 
 @st.cache_resource
 def _conn():
     if not Path(DB_PATH).exists():
-        st.error(f"Database not found: `{DB_PATH}`. Set MO_VOTES_DB env var.")
+        st.error(f"Database not found: {DB_PATH}")
         st.stop()
+
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+
     return conn
 
 def dbq(sql, params=()):
